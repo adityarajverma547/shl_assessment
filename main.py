@@ -1,46 +1,25 @@
-import streamlit as st
+from fastapi import FastAPI
+from pydantic import BaseModel
+from sentence_transformers import SentenceTransformer
 import pandas as pd
-from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+from typing import List, Dict
 
-# Load your dataset
-@st.cache_data
-def load_data():
-    df = pd.read_csv("output.csv")
-    df = df.dropna(subset=["Job Solution", "Link"])
-    return df
+# Load data
+df = pd.read_csv("preprocessed_data.csv")
+df['Embedding'] = df['Embedding'].apply(eval)
 
-df = load_data()
+model = SentenceTransformer('all-MiniLM-L6-v2')
+app = FastAPI()
 
-# Combine all relevant fields for text matching
-df["combined_text"] = df["Job Solution"].fillna("") + " " + df["Test Types"].fillna("")
+class QueryRequest(BaseModel):
+    query: str
+    top_n: int = 10
 
-# Vectorize the job solutions
-vectorizer = TfidfVectorizer()
-X = vectorizer.fit_transform(df["combined_text"])
-
-# --- Streamlit UI ---
-st.set_page_config(page_title="SHL Assessment Recommender", layout="wide")
-st.title("🔍 SHL Assessment Recommender")
-st.write("Enter a job description or query below. We’ll recommend the most relevant **SHL Individual Test Solutions** based on your input.")
-
-query = st.text_input("Enter job description or query...")
-
-if st.button("Recommend"):
-    if not query:
-        st.warning("Please enter a query.")
-    else:
-        query_vec = vectorizer.transform([query])
-        sim_scores = cosine_similarity(query_vec, X).flatten()
-        top_indices = sim_scores.argsort()[::-1][:10]
-
-        recommendations = df.iloc[top_indices]
-
-        st.subheader("📘 Recommended SHL Assessments")
-        for _, row in recommendations.iterrows():
-            st.markdown(f"### [{row['Job Solution']}]({row['Link']})")
-            st.markdown(f"- **Remote Testing:** {row['Remote Testing']}")
-            st.markdown(f"- **Adaptive/IRT:** {row['Adaptive/IRT']}")
-            st.markdown(f"- **Duration:** {row['Duration']}")
-            st.markdown(f"- **Test Types:** {row['Test Types']}")
-            st.markdown("---")
+@app.post("/recommend/")
+async def recommend_assessments(request: QueryRequest):
+    query_emb = model.encode(request.query).reshape(1, -1)
+    similarities = cosine_similarity(query_emb, df['Embedding'].tolist())[0]
+    df['Similarity'] = similarities
+    top_results = df.sort_values("Similarity", ascending=False).head(request.top_n)
+    return {"recommendations": top_results.to_dict(orient="records")}
