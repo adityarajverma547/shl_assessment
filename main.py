@@ -6,7 +6,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 from typing import List, Dict
 
 # Load data
-df = pd.read_csv("preprocessed_data.csv")
+df = pd.read_csv("preprocess_data.csv")
 df['Embedding'] = df['Embedding'].apply(eval)
 
 model = SentenceTransformer('all-MiniLM-L6-v2')
